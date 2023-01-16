@@ -19,11 +19,6 @@
 
 package com.baidu.hugegraph.backend.store;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import org.slf4j.Logger;
-
 import com.baidu.hugegraph.HugeGraphParams;
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.store.memory.InMemoryDBStoreProvider;
@@ -31,6 +26,10 @@ import com.baidu.hugegraph.backend.store.raft.RaftBackendStoreProvider;
 import com.baidu.hugegraph.config.CoreOptions;
 import com.baidu.hugegraph.config.HugeConfig;
 import com.baidu.hugegraph.util.Log;
+import org.slf4j.Logger;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class BackendProviderFactory {
 
@@ -46,12 +45,12 @@ public class BackendProviderFactory {
         HugeConfig config = params.configuration();
         String backend = config.get(CoreOptions.BACKEND).toLowerCase();
         String graph = config.get(CoreOptions.STORE);
-        boolean raftMode = config.get(CoreOptions.RAFT_MODE);
+        boolean raftMode = Boolean.parseBoolean(String.valueOf(config.get(CoreOptions.RAFT_MODE)));
 
         BackendStoreProvider provider = newProvider(config);
         if (raftMode) {
             LOG.info("Opening backend store '{}' in raft mode for graph '{}'",
-                     backend, graph);
+                backend, graph);
             provider = new RaftBackendStoreProvider(provider, params);
         }
         provider.open(graph);
@@ -68,7 +67,7 @@ public class BackendProviderFactory {
 
         Class<? extends BackendStoreProvider> clazz = providers.get(backend);
         BackendException.check(clazz != null,
-                               "Not exists BackendStoreProvider: %s", backend);
+            "Not exists BackendStoreProvider: %s", backend);
 
         assert BackendStoreProvider.class.isAssignableFrom(clazz);
         BackendStoreProvider instance = null;
@@ -79,13 +78,13 @@ public class BackendProviderFactory {
         }
 
         BackendException.check(backend.equals(instance.type()),
-                               "BackendStoreProvider with type '%s' " +
-                               "can't be opened by key '%s'",
-                               instance.type(), backend);
+            "BackendStoreProvider with type '%s' " +
+                "can't be opened by key '%s'",
+            instance.type(), backend);
         return instance;
     }
 
-    @SuppressWarnings({ "rawtypes", "unchecked" })
+    @SuppressWarnings({"rawtypes", "unchecked"})
     public static void register(String name, String classPath) {
         ClassLoader classLoader = BackendProviderFactory.class.getClassLoader();
         Class<?> clazz = null;
@@ -98,12 +97,12 @@ public class BackendProviderFactory {
         // Check subclass
         boolean subclass = BackendStoreProvider.class.isAssignableFrom(clazz);
         BackendException.check(subclass, "Class '%s' is not a subclass of " +
-                               "class BackendStoreProvider", classPath);
+            "class BackendStoreProvider", classPath);
 
         // Check exists
         BackendException.check(!providers.containsKey(name),
-                               "Exists BackendStoreProvider: %s (%s)",
-                               name, providers.get(name));
+            "Exists BackendStoreProvider: %s (%s)",
+            name, providers.get(name));
 
         // Register class
         providers.put(name, (Class) clazz);

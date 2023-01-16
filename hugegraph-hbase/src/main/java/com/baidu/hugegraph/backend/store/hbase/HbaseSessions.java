@@ -19,57 +19,6 @@
 
 package com.baidu.hugegraph.backend.store.hbase;
 
-import java.io.IOException;
-import java.io.InterruptedIOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.concurrent.Future;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.CellScanner;
-import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.NamespaceDescriptor;
-import org.apache.hadoop.hbase.RegionMetrics;
-import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.Size;
-import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.TableNotDisabledException;
-import org.apache.hadoop.hbase.TableNotEnabledException;
-import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
-import org.apache.hadoop.hbase.client.Connection;
-import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.ResultScanner;
-import org.apache.hadoop.hbase.client.Row;
-import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
-import org.apache.hadoop.hbase.client.coprocessor.AggregationClient;
-import org.apache.hadoop.hbase.client.coprocessor.LongColumnInterpreter;
-import org.apache.hadoop.hbase.filter.FilterList;
-import org.apache.hadoop.hbase.filter.FilterList.Operator;
-import org.apache.hadoop.hbase.filter.MultiRowRangeFilter;
-import org.apache.hadoop.hbase.filter.MultiRowRangeFilter.RowRange;
-import org.apache.hadoop.hbase.filter.PageFilter;
-import org.apache.hadoop.hbase.filter.PrefixFilter;
-import org.apache.hadoop.hbase.util.VersionInfo;
-import org.apache.hadoop.security.UserGroupInformation;
-
 import com.baidu.hugegraph.backend.BackendException;
 import com.baidu.hugegraph.backend.store.BackendEntry.BackendColumn;
 import com.baidu.hugegraph.backend.store.BackendEntry.BackendIterator;
@@ -82,11 +31,31 @@ import com.baidu.hugegraph.util.E;
 import com.baidu.hugegraph.util.StringEncoding;
 import com.baidu.hugegraph.util.VersionUtil;
 import com.google.common.util.concurrent.Futures;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.coprocessor.AggregationClient;
+import org.apache.hadoop.hbase.client.coprocessor.LongColumnInterpreter;
+import org.apache.hadoop.hbase.filter.FilterList;
+import org.apache.hadoop.hbase.filter.FilterList.Operator;
+import org.apache.hadoop.hbase.filter.MultiRowRangeFilter;
+import org.apache.hadoop.hbase.filter.MultiRowRangeFilter.RowRange;
+import org.apache.hadoop.hbase.filter.PageFilter;
+import org.apache.hadoop.hbase.filter.PrefixFilter;
+import org.apache.hadoop.hbase.util.VersionInfo;
+import org.apache.hadoop.security.UserGroupInformation;
+
+import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.concurrent.Future;
 
 public class HbaseSessions extends BackendSessionPool {
 
     private static final String COPROCESSOR_AGGR =
-            "org.apache.hadoop.hbase.coprocessor.AggregateImplementation";
+        "org.apache.hadoop.hbase.coprocessor.AggregateImplementation";
     private static final long SCANNER_CACHEING = 1000L;
 
     private final String namespace;
@@ -121,20 +90,18 @@ public class HbaseSessions extends BackendSessionPool {
     public synchronized void open() throws IOException {
         HugeConfig config = this.config();
         String hosts = config.get(HbaseOptions.HBASE_HOSTS);
-        int port = config.get(HbaseOptions.HBASE_PORT);
+        Integer port = Integer.valueOf(config.get(HbaseOptions.HBASE_PORT));
         String znodeParent = config.get(HbaseOptions.HBASE_ZNODE_PARENT);
-        boolean isEnableKerberos = config.get(HbaseOptions.HBASE_KERBEROS_ENABLE);
+        boolean isEnableKerberos = false;
         Configuration hConfig = HBaseConfiguration.create();
         hConfig.set(HConstants.ZOOKEEPER_QUORUM, hosts);
-        hConfig.set(HConstants.ZOOKEEPER_CLIENT_PORT, String.valueOf(port));
+        hConfig.setInt(HConstants.ZOOKEEPER_CLIENT_PORT, port);
         hConfig.set(HConstants.ZOOKEEPER_ZNODE_PARENT, znodeParent);
 
-        hConfig.setInt("zookeeper.recovery.retry",
-                       config.get(HbaseOptions.HBASE_ZK_RETRY));
-
+        hConfig.setInt("zookeeper.recovery.retry", Integer.valueOf(String.valueOf(config.get(HbaseOptions.HBASE_ZK_RETRY))));
         // Set hbase.hconnection.threads.max 64 to avoid OOM(default value: 256)
-        hConfig.setInt("hbase.hconnection.threads.max",
-                       config.get(HbaseOptions.HBASE_THREADS_MAX));
+        final Integer maxThread = Integer.valueOf(config.get(HbaseOptions.HBASE_THREADS_MAX));
+        hConfig.setInt("hbase.hconnection.threads.max", maxThread);
 
         String hbaseSite = config.get(HbaseOptions.HBASE_HBASE_SITE);
         hConfig.addResource(new Path(hbaseSite));
@@ -195,7 +162,7 @@ public class HbaseSessions extends BackendSessionPool {
 
     public void createNamespace() throws IOException {
         NamespaceDescriptor ns = NamespaceDescriptor.create(this.namespace)
-                                                    .build();
+            .build();
         try (Admin admin = this.hbase.getAdmin()) {
             admin.createNamespace(ns);
         }
@@ -216,13 +183,13 @@ public class HbaseSessions extends BackendSessionPool {
 
     public void createTable(String table, List<byte[]> cfs) throws IOException {
         TableDescriptorBuilder tdb = TableDescriptorBuilder.newBuilder(
-                                     TableName.valueOf(this.namespace, table));
+            TableName.valueOf(this.namespace, table));
         for (byte[] cf : cfs) {
             tdb.setColumnFamily(ColumnFamilyDescriptorBuilder.newBuilder(cf)
-                                                             .build());
+                .build());
         }
         tdb.setCoprocessor(COPROCESSOR_AGGR);
-        try(Admin admin = this.hbase.getAdmin()) {
+        try (Admin admin = this.hbase.getAdmin()) {
             admin.createTable(tdb.build());
         }
     }
@@ -397,7 +364,7 @@ public class HbaseSessions extends BackendSessionPool {
         public default R scan(String table, byte[] startRow,
                               boolean inclusiveStart, byte[] prefix) {
             Scan scan = new Scan().withStartRow(startRow, inclusiveStart)
-                                  .setFilter(new PrefixFilter(prefix));
+                .setFilter(new PrefixFilter(prefix));
             return this.scan(table, scan);
         }
 
@@ -437,7 +404,7 @@ public class HbaseSessions extends BackendSessionPool {
      * Session implement for HBase
      */
     public class Session extends AbstractBackendSession
-                         implements HbaseSession<RowIterator> {
+        implements HbaseSession<RowIterator> {
 
         private final Map<String, List<Row>> batch;
 
@@ -463,7 +430,7 @@ public class HbaseSessions extends BackendSessionPool {
         }
 
         private void checkBatchResults(Object[] results, List<Row> rows)
-                                       throws Throwable {
+            throws Throwable {
             assert rows.size() == results.length;
             for (int i = 0; i < results.length; i++) {
                 Object result = results[i];
@@ -472,7 +439,7 @@ public class HbaseSessions extends BackendSessionPool {
                 }
                 if (result == null || !((Result) result).isEmpty()) {
                     throw new BackendException("Failed batch for row: %s",
-                                               rows.get(i));
+                        rows.get(i));
                 }
             }
         }
@@ -528,11 +495,11 @@ public class HbaseSessions extends BackendSessionPool {
                     checkBatchResults(results, rows);
                 } catch (InterruptedIOException e) {
                     throw new BackendException("Interrupted, " +
-                                               "maybe it is timed out", e);
+                        "maybe it is timed out", e);
                 } catch (Throwable e) {
                     // TODO: Mark and delete committed records
                     throw new BackendException("Failed to commit, " +
-                              "there may be inconsistent states for HBase", e);
+                        "there may be inconsistent states for HBase", e);
                 }
             }
 
@@ -617,7 +584,7 @@ public class HbaseSessions extends BackendSessionPool {
             assert family != null;
             assert rowkey != null;
             E.checkArgument(qualifier != null,
-                            "HBase qualifier can't be null when removing");
+                "HBase qualifier can't be null when removing");
             Delete delete = new Delete(rowkey);
             if (latestVersion) {
                 // Just delete the latest version of the specified column
@@ -758,7 +725,7 @@ public class HbaseSessions extends BackendSessionPool {
                              byte[] qualifier, long value) {
             try (Table htable = table(table)) {
                 return htable.incrementColumnValue(rowkey, family,
-                                                   qualifier, value);
+                    qualifier, value);
             } catch (IOException e) {
                 throw new BackendException(e);
             }
@@ -777,7 +744,7 @@ public class HbaseSessions extends BackendSessionPool {
         @SuppressWarnings("unused")
         private void dump(String table, Scan scan) throws IOException {
             System.out.println(String.format(">>>> scan table %s with %s",
-                                             table, scan));
+                table, scan));
             RowIterator iterator = this.scan(table, scan);
             while (iterator.hasNext()) {
                 Result row = iterator.next();
@@ -788,8 +755,8 @@ public class HbaseSessions extends BackendSessionPool {
                     byte[] key = CellUtil.cloneQualifier(cell);
                     byte[] val = CellUtil.cloneValue(cell);
                     System.out.println(String.format("  %s=%s",
-                                       StringEncoding.format(key),
-                                       StringEncoding.format(val)));
+                        StringEncoding.format(key),
+                        StringEncoding.format(val)));
                 }
             }
         }
